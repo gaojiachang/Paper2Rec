@@ -1,32 +1,16 @@
 # Paper2Rec
 
-Paper2Rec is a recommendation-model playground. The current data pipeline uses
-MovieLens 1M and Amazon review rating files for SASRec-style sequential
-recommendation experiments.
+Paper2Rec 是一个推荐系统论文复现实验仓库。当前主要实现和整理 SASRec 相关的数据处理、训练和评估代码。
 
-## Data Sources
+## 数据来源
 
-Raw data files are not committed to this repository. Download them from:
+原始数据文件不提交到 GitHub，需要手动下载到 `data/raw/`：
 
 - MovieLens 1M: https://files.grouplens.org/datasets/movielens/ml-1m.zip
 - Amazon Beauty ratings: https://snap.stanford.edu/data/amazon/productGraph/categoryFiles/ratings_Beauty.csv
 - Amazon Books ratings: https://snap.stanford.edu/data/amazon/productGraph/categoryFiles/ratings_Books.csv
 
-Expected local layout:
-
-```text
-data/raw/ml-1m/
-data/raw/amazon-beauty/
-data/raw/amazon-books/
-data/processed/ml-1m/
-data/processed/amazon-beauty/
-data/processed/amazon-books/
-```
-
-The six data folders are tracked with `.gitkeep`, but their downloaded and
-processed contents are ignored.
-
-## Environment
+## 环境配置
 
 ```bash
 uv venv .venv
@@ -34,8 +18,29 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-## 5-Core Preprocessing
+## 5-Core 预处理
 
 ```bash
 python3 scripts/preprocess_5core.py --dataset all --min-core 5
+```
+
+## 常用命令
+
+指定 GPU：
+
+```bash
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=2
+```
+
+查看显卡状态：
+
+```bash
+watch -n 1 nvidia-smi
+```
+
+查看 TensorBoard：
+
+```bash
+tensorboard --logdir outputs
 ```
