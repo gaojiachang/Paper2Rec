@@ -120,7 +120,6 @@ class SASRec(nn.Module):
 
     def score_candidates(self, sequences: torch.Tensor, candidate_ids: torch.Tensor) -> torch.Tensor:
         hidden = self.encode(sequences)
-        lengths = (sequences != 0).sum(dim=1).clamp(min=1)
-        last_hidden = hidden[torch.arange(sequences.size(0), device=sequences.device), lengths - 1]
+        last_hidden = hidden[:, -1, :]
         candidate_emb = self.item_embedding(candidate_ids)
         return torch.einsum("bd,bkd->bk", last_hidden, candidate_emb)
