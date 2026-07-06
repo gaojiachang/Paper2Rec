@@ -30,7 +30,7 @@ python3 scripts/preprocess_5core.py --dataset all --min-core 5
 
 ```bash
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=5
 ```
 
 查看显卡状态：

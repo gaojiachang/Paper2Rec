@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 
 @dataclass
@@ -32,7 +33,7 @@ def load_sequence_data(path: Path, fast_dev_run: bool, fast_users: int) -> Seque
 
     with path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
-        for row in reader:
+        for row in tqdm(reader, desc=f"load {path.name}", unit="row"):
             user_id = row["user_id"]
             item_id = row["item_id"]
             timestamp = int(float(row["timestamp"]))
@@ -53,7 +54,7 @@ def load_sequence_data(path: Path, fast_dev_run: bool, fast_users: int) -> Seque
     test_targets: list[int] = []
     seen_items: list[set[int]] = []
 
-    for raw_user in raw_users:
+    for raw_user in tqdm(raw_users, desc="build user sequences", unit="user"):
         ordered = sorted(user_rows[raw_user], key=lambda pair: (pair[0], pair[1]))
         sequence = [item_to_id[item_id] for _ts, item_id in ordered]
         if len(sequence) < 3:
@@ -146,7 +147,15 @@ def build_eval_examples(
     candidates: list[list[int]] = []
     rng = random.Random(seed + (17 if split == "valid" else 29))
 
-    for user_idx, train_sequence in enumerate(data.train_sequences):
+    user_iter = enumerate(data.train_sequences)
+    user_iter = tqdm(
+        user_iter,
+        total=len(data.train_sequences),
+        desc=f"build {split} sampled negatives",
+        unit="user",
+    )
+
+    for user_idx, train_sequence in user_iter:
         if split == "valid":
             history = train_sequence
             target = data.valid_targets[user_idx]

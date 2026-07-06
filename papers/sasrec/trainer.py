@@ -116,7 +116,11 @@ def run(args: argparse.Namespace) -> None:
             num_heads=config.num_heads,
             dropout=config.dropout,
         ).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=config.lr,
+            betas=(0.9, config.adam_beta2),
+        )
 
         print("building fixed sampled-eval negatives")
         valid_histories, valid_candidates = build_eval_examples(

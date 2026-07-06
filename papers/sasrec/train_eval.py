@@ -23,6 +23,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--adam-beta2", type=float, default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--eval-negatives", type=int, default=None)
     parser.add_argument("--eval-batch-size", type=int, default=None)
