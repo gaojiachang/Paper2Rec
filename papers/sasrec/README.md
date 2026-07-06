@@ -27,7 +27,3 @@ nohup python -u papers/sasrec/train_eval.py \
   --dataset amazon-books \
   > papers/sasrec/logs/amazon-books.txt 2>&1 &
 ```
-
-```bash
-tail -f papers/sasrec/logs/amazon-books.txt
-```

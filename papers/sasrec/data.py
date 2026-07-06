@@ -79,11 +79,9 @@ def sample_negative(num_items: int, forbidden: set[int], rng: random.Random) -> 
     if len(forbidden) >= num_items:
         raise ValueError("Cannot sample a negative item because the user saw every item.")
     for _ in range(100):
-        item = rng.randint(1, num_items)
-        if item not in forbidden:
+        if (item := rng.randint(1, num_items)) not in forbidden:
             return item
-    candidates = [item for item in range(1, num_items + 1) if item not in forbidden]
-    return rng.choice(candidates)
+    return rng.choice([item for item in range(1, num_items + 1) if item not in forbidden])
 
 
 class SASRecTrainDataset(Dataset):
@@ -139,13 +137,14 @@ def make_history(sequence: list[int], max_seq_len: int) -> list[int]:
 def build_eval_examples(
     data: SequenceData,
     split: str,
-    max_seq_len: int,
-    num_negatives: int,
-    seed: int,
+    config,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    if split not in {"valid", "test"}:
+        raise ValueError(f"Unknown split: {split}")
+
     histories: list[list[int]] = []
     candidates: list[list[int]] = []
-    rng = random.Random(seed + (17 if split == "valid" else 29))
+    rng = random.Random(config.seed + (17 if split == "valid" else 29))
 
     user_iter = enumerate(data.train_sequences)
     user_iter = tqdm(
@@ -156,22 +155,16 @@ def build_eval_examples(
     )
 
     for user_idx, train_sequence in user_iter:
-        if split == "valid":
-            history = train_sequence
-            target = data.valid_targets[user_idx]
-        elif split == "test":
-            history = [*train_sequence, data.valid_targets[user_idx]]
-            target = data.test_targets[user_idx]
-        else:
-            raise ValueError(f"Unknown split: {split}")
-
+        is_valid = split == "valid"
+        history = train_sequence if is_valid else [*train_sequence, data.valid_targets[user_idx]]
+        target = data.valid_targets[user_idx] if is_valid else data.test_targets[user_idx]
         eval_forbidden = set(data.seen_items[user_idx])
-        negatives = []
-        for _ in range(num_negatives):
+        negatives: list[int] = []
+        for _ in range(config.eval_negatives):
             negative = sample_negative(data.num_items, eval_forbidden, rng)
             negatives.append(negative)
             eval_forbidden.add(negative)
-        histories.append(make_history(history, max_seq_len))
+        histories.append(make_history(history, config.max_seq_len))
         candidates.append([target, *negatives])
 
     return torch.tensor(histories, dtype=torch.long), torch.tensor(candidates, dtype=torch.long)

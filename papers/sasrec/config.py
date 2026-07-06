@@ -15,6 +15,10 @@ COMMON_DEFAULTS = {
     "eval_batch_size": 512,
     "fast_users": 1024,
     "fast_batches": 20,
+    "hidden_size": 50,
+    "adam_beta2": 0.98,
+    "batch_size": 128,
+    "epochs": 1500
 }
 
 
@@ -22,32 +26,22 @@ DATASET_DEFAULTS = {
     "ml-1m": {
         "path": Path("data/processed/ml-1m/interactions_5core.tsv"),
         "max_seq_len": 200,
-        "hidden_size": 50,
         "num_heads": 1,
         "dropout": 0.2,
-        "batch_size": 128,
-        "adam_beta2": 0.98,
-        "epochs": 201,
+
     },
     "amazon-beauty": {
         "path": Path("data/processed/amazon-beauty/interactions_5core.tsv"),
         "max_seq_len": 50,
-        "hidden_size": 50,
         "num_heads": 1,
         "dropout": 0.5,
-        "batch_size": 128,
-        "adam_beta2": 0.98,
-        "epochs": 201,
+
     },
     "amazon-books": {
         "path": Path("data/processed/amazon-books/interactions_5core.tsv"),
         "max_seq_len": 50,
-        "hidden_size": 64,
         "num_heads": 2,
         "dropout": 0.5,
-        "batch_size": 512,
-        "adam_beta2": 0.999,
-        "epochs": 500,
     },
 }
 
@@ -83,28 +77,24 @@ def _resolve(args: argparse.Namespace, defaults: dict, name: str):
 
 def build_config(args: argparse.Namespace) -> RunConfig:
     defaults = {**COMMON_DEFAULTS, **DATASET_DEFAULTS[args.dataset]}
-    epochs = 1 if args.fast_dev_run else _resolve(args, defaults, "epochs")
-    run_id = args.run_id or time.strftime("%Y%m%d-%H%M%S")
-    output_root = _resolve(args, defaults, "output_dir")
-    output_dir = Path(output_root) / "sasrec" / args.dataset / run_id
+    skip = {"dataset", "data_path", "output_dir", "fast_dev_run"}
+    values = {
+        name: _resolve(args, defaults, name)
+        for name in RunConfig.__dataclass_fields__
+        if name not in skip
+    }
+    if args.fast_dev_run:
+        values["epochs"] = 1
 
     return RunConfig(
         dataset=args.dataset,
         data_path=str(defaults["path"]),
-        output_dir=str(output_dir),
-        seed=_resolve(args, defaults, "seed"),
-        max_seq_len=_resolve(args, defaults, "max_seq_len"),
-        hidden_size=_resolve(args, defaults, "hidden_size"),
-        num_blocks=_resolve(args, defaults, "num_blocks"),
-        num_heads=_resolve(args, defaults, "num_heads"),
-        dropout=_resolve(args, defaults, "dropout"),
-        batch_size=_resolve(args, defaults, "batch_size"),
-        lr=_resolve(args, defaults, "lr"),
-        adam_beta2=_resolve(args, defaults, "adam_beta2"),
-        epochs=epochs,
-        eval_negatives=_resolve(args, defaults, "eval_negatives"),
-        eval_batch_size=_resolve(args, defaults, "eval_batch_size"),
+        output_dir=str(
+            Path(_resolve(args, defaults, "output_dir"))
+            / "sasrec"
+            / args.dataset
+            / (args.run_id or time.strftime("%Y%m%d-%H%M%S"))
+        ),
         fast_dev_run=args.fast_dev_run,
-        fast_users=_resolve(args, defaults, "fast_users"),
-        fast_batches=_resolve(args, defaults, "fast_batches"),
+        **values,
     )

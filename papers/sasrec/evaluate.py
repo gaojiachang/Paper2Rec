@@ -21,13 +21,12 @@ def evaluate_sampled(
     total = histories.size(0)
 
     for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        batch_histories = histories[start:end].to(device)
-        batch_candidates = candidates[start:end].to(device)
+        batch_histories = histories[start : start + batch_size].to(device)
+        batch_candidates = candidates[start : start + batch_size].to(device)
         scores = model.score_candidates(batch_histories, batch_candidates)
         target_scores = scores[:, :1]
         negative_scores = scores[:, 1:]
-        ranks = (scores > target_scores).sum(dim=1)
+        ranks = (negative_scores > target_scores).sum(dim=1)
         hits += (ranks < k).float().sum().item()
         ndcg += torch.where(
             ranks < k,

@@ -10,26 +10,21 @@ from config import DATASET_DEFAULTS
 from trainer import run
 
 
+OPTION_TYPES = {
+    **dict.fromkeys(("output_dir", "run_id"), str),
+    **dict.fromkeys(("seed", "max_seq_len", "hidden_size", "num_blocks", "num_heads"), int),
+    **dict.fromkeys(("batch_size", "epochs", "eval_negatives", "eval_batch_size"), int),
+    **dict.fromkeys(("fast_users", "fast_batches"), int),
+    **dict.fromkeys(("dropout", "lr", "adam_beta2"), float),
+}
+
+
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train/evaluate a minimal SASRec baseline.")
     parser.add_argument("--dataset", choices=sorted(DATASET_DEFAULTS), required=True)
-    parser.add_argument("--output-dir", default=None)
-    parser.add_argument("--run-id", default=None)
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--max-seq-len", type=int, default=None)
-    parser.add_argument("--hidden-size", type=int, default=None)
-    parser.add_argument("--num-blocks", type=int, default=None)
-    parser.add_argument("--num-heads", type=int, default=None)
-    parser.add_argument("--dropout", type=float, default=None)
-    parser.add_argument("--batch-size", type=int, default=None)
-    parser.add_argument("--lr", type=float, default=None)
-    parser.add_argument("--adam-beta2", type=float, default=None)
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--eval-negatives", type=int, default=None)
-    parser.add_argument("--eval-batch-size", type=int, default=None)
+    for name, value_type in OPTION_TYPES.items():
+        parser.add_argument(f"--{name.replace('_', '-')}", type=value_type, default=None)
     parser.add_argument("--fast-dev-run", action="store_true")
-    parser.add_argument("--fast-users", type=int, default=None)
-    parser.add_argument("--fast-batches", type=int, default=None)
     return parser.parse_args(argv)
 
 

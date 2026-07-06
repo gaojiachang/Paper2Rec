@@ -30,10 +30,7 @@ class CausalSelfAttention(nn.Module):
         v = shape(self.v_proj(x))
 
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        causal_mask = torch.triu(
-            torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device),
-            diagonal=1,
-        )
+        causal_mask = torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device).triu(1)
         scores = scores.masked_fill(causal_mask, -1.0e9)
         scores = scores.masked_fill(~valid_mask[:, None, None, :], -1.0e9)
 
@@ -81,17 +78,14 @@ class SASRec(nn.Module):
         self.item_embedding = nn.Embedding(num_items + 1, hidden_size, padding_idx=0)
         self.position_embedding = nn.Embedding(max_seq_len, hidden_size)
         self.dropout = nn.Dropout(dropout)
-        self.blocks = nn.ModuleList(
-            [SASRecBlock(hidden_size, num_heads, dropout) for _ in range(num_blocks)]
-        )
+        self.blocks = nn.ModuleList([SASRecBlock(hidden_size, num_heads, dropout) for _ in range(num_blocks)])
         self.final_norm = nn.LayerNorm(hidden_size, eps=1.0e-8)
         self.hidden_size = hidden_size
         self.max_seq_len = max_seq_len
 
     def encode(self, item_sequences: torch.Tensor) -> torch.Tensor:
         valid_mask = item_sequences != 0
-        positions = torch.arange(item_sequences.size(1), device=item_sequences.device)
-        positions = positions.unsqueeze(0).expand_as(item_sequences)
+        positions = torch.arange(item_sequences.size(1), device=item_sequences.device).unsqueeze(0)
 
         x = self.item_embedding(item_sequences) * math.sqrt(self.hidden_size)
         x = x + self.position_embedding(positions)

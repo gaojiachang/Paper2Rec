@@ -23,15 +23,54 @@ def sasrec_loss(
     positive_ids: torch.Tensor,
 ) -> torch.Tensor:
     mask = positive_ids != 0
-    positive_loss = F.binary_cross_entropy_with_logits(
-        positive_logits[mask],
-        torch.ones_like(positive_logits[mask]),
+    positive_logits = positive_logits[mask]
+    negative_logits = negative_logits[mask]
+    logits = torch.cat([positive_logits, negative_logits])
+    labels = torch.cat([torch.ones_like(positive_logits), torch.zeros_like(negative_logits)])
+    return 2 * F.binary_cross_entropy_with_logits(logits, labels)
+
+
+def build_model_optimizer(config, num_items: int, device: torch.device):
+    model = SASRec(
+        num_items=num_items,
+        max_seq_len=config.max_seq_len,
+        hidden_size=config.hidden_size,
+        num_blocks=config.num_blocks,
+        num_heads=config.num_heads,
+        dropout=config.dropout,
+    ).to(device)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.lr,
+        betas=(0.9, config.adam_beta2),
     )
-    negative_loss = F.binary_cross_entropy_with_logits(
-        negative_logits[mask],
-        torch.zeros_like(negative_logits[mask]),
+    return model, optimizer
+
+
+def save_checkpoint(path: Path, model: SASRec, config, num_items: int, epoch: int, valid: dict) -> None:
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "config": asdict(config),
+            "num_items": num_items,
+            "epoch": epoch,
+            "valid": valid,
+        },
+        path,
     )
-    return positive_loss + negative_loss
+
+
+def write_epoch_scalars(writer: SummaryWriter, epoch: int, loss: float, valid: dict, best_ndcg: float) -> None:
+    writer.add_scalar("train/loss", loss, epoch)
+    writer.add_scalar("valid/hr@10", valid["hr@10"], epoch)
+    writer.add_scalar("valid/ndcg@10", valid["ndcg@10"], epoch)
+    writer.add_scalar("valid/auc", valid["auc"], epoch)
+    writer.add_scalar("meta/best_valid_ndcg@10", best_ndcg, epoch)
+
+
+def write_test_scalars(writer: SummaryWriter, epoch: int, metrics: dict) -> None:
+    for name, value in metrics.items():
+        writer.add_scalar(f"test/{name}", value, epoch)
 
 
 def train_one_epoch(
@@ -108,35 +147,11 @@ def run(args: argparse.Namespace) -> None:
             pin_memory=device.type == "cuda",
         )
 
-        model = SASRec(
-            num_items=data.num_items,
-            max_seq_len=config.max_seq_len,
-            hidden_size=config.hidden_size,
-            num_blocks=config.num_blocks,
-            num_heads=config.num_heads,
-            dropout=config.dropout,
-        ).to(device)
-        optimizer = torch.optim.Adam(
-            model.parameters(),
-            lr=config.lr,
-            betas=(0.9, config.adam_beta2),
-        )
+        model, optimizer = build_model_optimizer(config, data.num_items, device)
 
         print("building fixed sampled-eval negatives")
-        valid_histories, valid_candidates = build_eval_examples(
-            data,
-            split="valid",
-            max_seq_len=config.max_seq_len,
-            num_negatives=config.eval_negatives,
-            seed=config.seed,
-        )
-        test_histories, test_candidates = build_eval_examples(
-            data,
-            split="test",
-            max_seq_len=config.max_seq_len,
-            num_negatives=config.eval_negatives,
-            seed=config.seed,
-        )
+        valid_histories, valid_candidates = build_eval_examples(data, "valid", config)
+        test_histories, test_candidates = build_eval_examples(data, "test", config)
 
         best_ndcg = -1.0
         best_epoch = 0
@@ -172,22 +187,9 @@ def run(args: argparse.Namespace) -> None:
                 if valid_metrics["ndcg@10"] > best_ndcg:
                     best_ndcg = valid_metrics["ndcg@10"]
                     best_epoch = epoch
-                    torch.save(
-                        {
-                            "model_state_dict": model.state_dict(),
-                            "config": asdict(config),
-                            "num_items": data.num_items,
-                            "epoch": epoch,
-                            "valid": valid_metrics,
-                        },
-                        best_path,
-                    )
+                    save_checkpoint(best_path, model, config, data.num_items, epoch, valid_metrics)
 
-                writer.add_scalar("train/loss", loss, epoch)
-                writer.add_scalar("valid/hr@10", valid_metrics["hr@10"], epoch)
-                writer.add_scalar("valid/ndcg@10", valid_metrics["ndcg@10"], epoch)
-                writer.add_scalar("valid/auc", valid_metrics["auc"], epoch)
-                writer.add_scalar("meta/best_valid_ndcg@10", best_ndcg, epoch)
+                write_epoch_scalars(writer, epoch, loss, valid_metrics, best_ndcg)
                 epoch_progress.set_postfix(
                     loss=f"{loss:.4f}",
                     **{
@@ -209,9 +211,7 @@ def run(args: argparse.Namespace) -> None:
             config.eval_batch_size,
             k=10,
         )
-        writer.add_scalar("test/hr@10", test_metrics["hr@10"], config.epochs)
-        writer.add_scalar("test/ndcg@10", test_metrics["ndcg@10"], config.epochs)
-        writer.add_scalar("test/auc", test_metrics["auc"], config.epochs)
+        write_test_scalars(writer, config.epochs, test_metrics)
 
         summary = {
             "best_epoch": best_epoch,
