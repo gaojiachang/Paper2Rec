@@ -31,9 +31,13 @@ data/raw/amazon-beauty/*
 !data/raw/amazon-beauty/.gitkeep
 data/raw/amazon-books/*
 !data/raw/amazon-books/.gitkeep
+data/raw/taobao-userbehavior/*
+!data/raw/taobao-userbehavior/.gitkeep
 data/processed/ml-1m/*
 !data/processed/ml-1m/.gitkeep
 data/processed/amazon-beauty/*
 !data/processed/amazon-beauty/.gitkeep
 data/processed/amazon-books/*
 !data/processed/amazon-books/.gitkeep
+data/processed/taobao-userbehavior/*
+!data/processed/taobao-userbehavior/.gitkeep
