@@ -18,8 +18,8 @@ env/
 
 # Logs and experiment outputs
 *.log
-papers/sasrec/logs/*.txt
-!papers/sasrec/logs/.gitkeep
+papers/*/logs/*
+!papers/*/logs/.gitkeep
 runs/
 checkpoints/
 outputs/
