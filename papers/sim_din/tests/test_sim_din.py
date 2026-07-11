@@ -198,6 +198,8 @@ class SimDinTests(unittest.TestCase):
             config = fixture_config(Path(temporary), "din")
             summary = run(config)
             self.assertEqual(summary["best_epoch"], 1)
+            self.assertEqual(summary["history"][0]["train_metrics"]["count"], 1)
+            self.assertEqual(summary["history"][0]["train_metrics"]["hr@10"], 1.0)
             self.assertNotIn("by_history_length", summary["test"])
             self.assertTrue((Path(config.output_dir) / "best.pt").is_file())
             self.assertTrue((Path(config.output_dir) / "metrics.json").is_file())

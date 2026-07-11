@@ -22,13 +22,13 @@ try:
         load_train_targets,
         load_valid_subset_ids,
     )
-    from .evaluate import evaluate_candidate_groups, move_batch_to_device
+    from .evaluate import average_tie_rank_and_auc, evaluate_candidate_groups, move_batch_to_device
     from .model import SimDinModel
     from .utils import AmpController, choose_device, describe_device, save_json, set_seed
 except ImportError:  # pragma: no cover - direct CLI invocation.
     from config import RunConfig, build_config, parse_args
     from data import TrainGroupDataset, ensure_cache, evaluation_batches, load_train_targets, load_valid_subset_ids
-    from evaluate import evaluate_candidate_groups, move_batch_to_device
+    from evaluate import average_tie_rank_and_auc, evaluate_candidate_groups, move_batch_to_device
     from model import SimDinModel
     from utils import AmpController, choose_device, describe_device, save_json, set_seed
 
@@ -71,21 +71,44 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     amp: AmpController,
-) -> float:
+) -> tuple[float, dict[str, float | int]]:
     model.train()
     total_loss = 0.0
     total_groups = 0
+    metric_sums = torch.zeros(4, dtype=torch.float64, device=device)
     for cpu_batch in loader:
         batch = move_batch_to_device(cpu_batch, device)
         optimizer.zero_grad(set_to_none=True)
         with amp.autocast():
             logits = model(batch)
             loss = F.binary_cross_entropy_with_logits(logits, batch["labels"])
+        ranks, auc_values = average_tie_rank_and_auc(logits.detach().float())
+        metric_sums += torch.stack(
+            (
+                auc_values.sum(),
+                (ranks <= 10.0).sum(dtype=torch.float32),
+                torch.where(
+                    ranks <= 10.0,
+                    1.0 / torch.log2(ranks + 1.0),
+                    torch.zeros_like(ranks),
+                ).sum(),
+                (1.0 / ranks).sum(),
+            )
+        ).to(torch.float64)
         amp.backward_step(loss, optimizer)
         group_count = logits.size(0)
         total_loss += float(loss.detach().item()) * group_count
         total_groups += group_count
-    return total_loss / max(total_groups, 1)
+    denominator = max(total_groups, 1)
+    auc_sum, hr_sum, ndcg_sum, mrr_sum = metric_sums.tolist()
+    metrics: dict[str, float | int] = {
+        "count": total_groups,
+        "auc": auc_sum / denominator,
+        "hr@10": hr_sum / denominator,
+        "ndcg@10": ndcg_sum / denominator,
+        "mrr": mrr_sum / denominator,
+    }
+    return total_loss / denominator, metrics
 
 
 def _write_metrics(writer: SummaryWriter, prefix: str, metrics: dict[str, object], epoch: int) -> None:
@@ -161,7 +184,7 @@ def run(config: RunConfig) -> dict[str, object]:
         progress = tqdm(range(1, config.epochs + 1), desc="epochs", unit="epoch", dynamic_ncols=True)
         for epoch in progress:
             train_dataset.set_epoch(epoch)
-            train_loss = train_one_epoch(model, loader, optimizer, device, amp)
+            train_loss, train_metrics = train_one_epoch(model, loader, optimizer, device, amp)
             subset_metrics = evaluate_candidate_groups(
                 model,
                 _evaluation_iterator(cache, config, "valid", valid_subset_ids),
@@ -194,6 +217,7 @@ def run(config: RunConfig) -> dict[str, object]:
                         cache.num_category_embeddings,
                     )
             writer.add_scalar("train/loss", train_loss, epoch)
+            _write_metrics(writer, "train", train_metrics, epoch)
             _write_metrics(writer, "valid_subset", subset_metrics, epoch)
             if full_metrics is not None:
                 _write_metrics(writer, "valid_full", full_metrics, epoch)
@@ -201,6 +225,7 @@ def run(config: RunConfig) -> dict[str, object]:
             row: dict[str, Any] = {
                 "epoch": epoch,
                 "train_loss": train_loss,
+                "train_metrics": train_metrics,
                 "valid_subset": subset_metrics,
                 "valid_full": full_metrics,
                 "confirmed_best": confirmed,
