@@ -10,7 +10,7 @@
 
 ## 数据与缓存
 
-输入为 `data/processed/taobao-userbehavior/` 下的清洗 Parquet 及其 `dataset/` 目标/候选文件。首次运行会在 `dataset/cache/` 生成连续 ID、用户 offsets 和完整时间序列缓存；之后会校验来源文件与映射规则后复用。使用 `--rebuild-cache` 可强制重建。
+输入为 `data/processed/taobao-userbehavior/user_behavior_clean.parquet` 及 SIM/DIN 专用的 `data/processed/taobao-userbehavior/sim_din/` 目标/候选文件。首次运行会在 `sim_din/cache/` 生成连续 ID、用户 offsets 和完整时间序列缓存；之后会校验来源文件与映射规则后复用。使用 `--rebuild-cache` 可强制重建。
 
 Item 和 Category 映射遵循：`0=PAD`、`1=OOV`、训练商品池中的真实 ID 从 `2` 开始。训练外历史商品及其类别均映射为 OOV；Valid/Test 的正负候选必须来自训练商品池。
 

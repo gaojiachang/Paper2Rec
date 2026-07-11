@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the date-split Taobao data set used by the SIM reproduction.
+"""Build the date-split Taobao data set used by the SIM/DIN experiments.
 
 This script intentionally keeps raw Taobao IDs and full histories.  It creates
 time-based positive targets and fixed evaluation candidates; sequence clipping,
@@ -26,9 +26,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUT = REPO_ROOT / "data/processed/taobao-userbehavior/user_behavior_clean.parquet"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "data/processed/taobao-userbehavior/dataset"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "data/processed/taobao-userbehavior/sim_din"
 
 TIMEZONE = ZoneInfo("Asia/Shanghai")
 

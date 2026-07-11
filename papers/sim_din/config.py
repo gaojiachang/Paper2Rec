@@ -10,7 +10,7 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DATASET_DIR = REPO_ROOT / "data/processed/taobao-userbehavior/dataset"
+DEFAULT_DATASET_DIR = REPO_ROOT / "data/processed/taobao-userbehavior/sim_din"
 DEFAULT_CLEAN_PATH = REPO_ROOT / "data/processed/taobao-userbehavior/user_behavior_clean.parquet"
 
 
