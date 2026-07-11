@@ -32,7 +32,7 @@ pytho3 scripts/preprocess_taobao.py
 
 ```bash
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=3
 ```
 
 查看显卡状态：
