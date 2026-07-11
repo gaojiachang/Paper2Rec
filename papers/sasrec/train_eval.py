@@ -6,14 +6,18 @@ from __future__ import annotations
 import argparse
 from typing import Iterable
 
-from config import DATASET_DEFAULTS
-from trainer import run
+try:
+    from .config import DATASET_DEFAULTS
+    from .trainer import run
+except ImportError:  # pragma: no cover - direct script invocation
+    from config import DATASET_DEFAULTS
+    from trainer import run
 
 
 OPTION_TYPES = {
     **dict.fromkeys(("output_dir", "run_id"), str),
     **dict.fromkeys(("seed", "max_seq_len", "hidden_size", "num_blocks", "num_heads"), int),
-    **dict.fromkeys(("batch_size", "epochs", "eval_negatives", "eval_batch_size"), int),
+    **dict.fromkeys(("batch_size", "epochs", "patience", "eval_negatives", "eval_batch_size"), int),
     **dict.fromkeys(("fast_users", "fast_batches"), int),
     **dict.fromkeys(("dropout", "lr", "adam_beta2"), float),
 }

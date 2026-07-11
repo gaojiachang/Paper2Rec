@@ -10,11 +10,21 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from config import build_config
-from data import SASRecTrainDataset, build_eval_examples, load_sequence_data
-from evaluate import evaluate_sampled
-from model import SASRec
-from utils import choose_device, describe_device, save_json, set_seed
+try:
+    from .config import build_config
+    from .data import SASRecTrainDataset, load_prepared_data
+    from .evaluate import evaluate_sampled
+    from .model import SASRec
+    from .utils import choose_device, describe_device, save_json, set_seed
+except ImportError:  # pragma: no cover - direct script invocation
+    from config import build_config
+    from data import SASRecTrainDataset, load_prepared_data
+    from evaluate import evaluate_sampled
+    from model import SASRec
+    from utils import choose_device, describe_device, save_json, set_seed
+
+
+VALID_METRIC_NAMES = ("auc", "hr@10", "ndcg@10", "mrr")
 
 
 def sasrec_loss(
@@ -60,11 +70,18 @@ def save_checkpoint(path: Path, model: SASRec, config, num_items: int, epoch: in
     )
 
 
-def write_epoch_scalars(writer: SummaryWriter, epoch: int, loss: float, valid: dict, best_ndcg: float) -> None:
+def write_epoch_scalars(
+    writer: SummaryWriter,
+    epoch: int,
+    loss: float,
+    train: dict,
+    valid: dict,
+    best_ndcg: float,
+) -> None:
     writer.add_scalar("train/loss", loss, epoch)
-    writer.add_scalar("valid/hr@10", valid["hr@10"], epoch)
-    writer.add_scalar("valid/ndcg@10", valid["ndcg@10"], epoch)
-    writer.add_scalar("valid/auc", valid["auc"], epoch)
+    for name in VALID_METRIC_NAMES:
+        writer.add_scalar(f"train/{name}", train[name], epoch)
+        writer.add_scalar(f"valid/{name}", valid[name], epoch)
     writer.add_scalar("meta/best_valid_ndcg@10", best_ndcg, epoch)
 
 
@@ -79,10 +96,12 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     fast_batches: int | None,
-) -> float:
+) -> tuple[float, dict[str, float | int]]:
     model.train()
     total_loss = 0.0
     steps = 0
+    total_positions = 0
+    metric_sums = torch.zeros(4, dtype=torch.float64, device=device)
 
     for batch in loader:
         sequences = batch["sequences"].to(device)
@@ -96,6 +115,30 @@ def train_one_epoch(
             negative_ids,
         )
         loss = sasrec_loss(positive_logits, negative_logits, positive_ids)
+
+        # 每个有效训练位置只有一个正例和一个负例，据此计算在线排名指标。
+        mask = positive_ids != 0
+        positive_scores = positive_logits.detach()[mask].float()
+        negative_scores = negative_logits.detach()[mask].float()
+        greater = (negative_scores > positive_scores).to(torch.float32)
+        lower = (negative_scores < positive_scores).to(torch.float32)
+        ties = (negative_scores == positive_scores).to(torch.float32)
+        ranks = 1.0 + greater + 0.5 * ties
+        auc_values = lower + 0.5 * ties
+        metric_sums += torch.stack(
+            (
+                auc_values.sum(),
+                (ranks <= 10.0).sum(dtype=torch.float32),
+                torch.where(
+                    ranks <= 10.0,
+                    1.0 / torch.log2(ranks + 1.0),
+                    torch.zeros_like(ranks),
+                ).sum(),
+                (1.0 / ranks).sum(),
+            )
+        ).to(torch.float64)
+        total_positions += positive_scores.numel()
+
         loss.backward()
         optimizer.step()
 
@@ -104,7 +147,25 @@ def train_one_epoch(
         if fast_batches is not None and steps >= fast_batches:
             break
 
-    return total_loss / max(steps, 1)
+    denominator = max(total_positions, 1)
+    auc_sum, hr_sum, ndcg_sum, mrr_sum = metric_sums.tolist()
+    metrics: dict[str, float | int] = {
+        "count": total_positions,
+        "auc": auc_sum / denominator,
+        "hr@10": hr_sum / denominator,
+        "ndcg@10": ndcg_sum / denominator,
+        "mrr": mrr_sum / denominator,
+    }
+    return total_loss / max(steps, 1), metrics
+
+
+def update_best_valid_metrics(metrics: dict, best_metrics: dict[str, float]) -> tuple[str, ...]:
+    improved = tuple(
+        name for name in VALID_METRIC_NAMES if float(metrics[name]) > best_metrics[name]
+    )
+    for name in improved:
+        best_metrics[name] = float(metrics[name])
+    return improved
 
 
 def run(args: argparse.Namespace) -> None:
@@ -118,12 +179,12 @@ def run(args: argparse.Namespace) -> None:
 
     try:
         print(f"dataset={config.dataset}")
-        print(f"data_path={config.data_path}")
+        print(f"dataset_dir={config.dataset_dir}")
         print(f"output_dir={config.output_dir}")
         print(f"tensorboard_dir={output_dir / 'tensorboard'}")
         print(f"device={describe_device(device)}")
 
-        data = load_sequence_data(Path(config.data_path), config.fast_dev_run, config.fast_users)
+        data = load_prepared_data(config)
         print(
             "loaded "
             f"users={data.num_users} items={data.num_items} interactions={data.num_interactions} "
@@ -133,11 +194,9 @@ def run(args: argparse.Namespace) -> None:
             raise ValueError("No users with at least three interactions were loaded.")
 
         train_dataset = SASRecTrainDataset(
-            train_sequences=data.train_sequences,
-            seen_items=data.seen_items,
-            num_items=data.num_items,
-            max_seq_len=config.max_seq_len,
-            seed=config.seed,
+            sequences=data.train_sequences,
+            positive_ids=data.train_positives,
+            negative_ids=data.train_negatives,
         )
         loader = DataLoader(
             train_dataset,
@@ -149,11 +208,9 @@ def run(args: argparse.Namespace) -> None:
 
         model, optimizer = build_model_optimizer(config, data.num_items, device)
 
-        print("building fixed sampled-eval negatives")
-        valid_histories, valid_candidates = build_eval_examples(data, "valid", config)
-        test_histories, test_candidates = build_eval_examples(data, "test", config)
-
         best_ndcg = -1.0
+        best_valid_metrics = {name: float("-inf") for name in VALID_METRIC_NAMES}
+        epochs_without_valid_improvement = 0
         best_epoch = 0
         metrics: list[dict[str, object]] = []
         best_path = output_dir / "best.pt"
@@ -166,7 +223,7 @@ def run(args: argparse.Namespace) -> None:
             dynamic_ncols=True,
         ) as epoch_progress:
             for epoch in range(1, config.epochs + 1):
-                loss = train_one_epoch(
+                loss, train_metrics = train_one_epoch(
                     model,
                     loader,
                     optimizer,
@@ -175,13 +232,27 @@ def run(args: argparse.Namespace) -> None:
                 )
                 valid_metrics = evaluate_sampled(
                     model,
-                    valid_histories,
-                    valid_candidates,
+                    data.valid_histories,
+                    data.valid_candidates,
                     device,
                     config.eval_batch_size,
                     k=10,
                 )
-                row = {"epoch": epoch, "loss": loss, "valid": valid_metrics}
+                improved_valid_metrics = update_best_valid_metrics(
+                    valid_metrics, best_valid_metrics
+                )
+                if improved_valid_metrics:
+                    epochs_without_valid_improvement = 0
+                else:
+                    epochs_without_valid_improvement += 1
+                row = {
+                    "epoch": epoch,
+                    "loss": loss,
+                    "train": train_metrics,
+                    "valid": valid_metrics,
+                    "improved_valid_metrics": list(improved_valid_metrics),
+                    "epochs_without_valid_improvement": epochs_without_valid_improvement,
+                }
                 metrics.append(row)
 
                 if valid_metrics["ndcg@10"] > best_ndcg:
@@ -189,29 +260,40 @@ def run(args: argparse.Namespace) -> None:
                     best_epoch = epoch
                     save_checkpoint(best_path, model, config, data.num_items, epoch, valid_metrics)
 
-                write_epoch_scalars(writer, epoch, loss, valid_metrics, best_ndcg)
+                write_epoch_scalars(
+                    writer, epoch, loss, train_metrics, valid_metrics, best_ndcg
+                )
                 epoch_progress.set_postfix(
                     loss=f"{loss:.4f}",
                     **{
                         "valid_hr@10": f"{valid_metrics['hr@10']:.4f}",
                         "valid_ndcg@10": f"{valid_metrics['ndcg@10']:.4f}",
                         "valid_auc": f"{valid_metrics['auc']:.4f}",
+                        "valid_mrr": f"{valid_metrics['mrr']:.4f}",
+                        "stale": epochs_without_valid_improvement,
                     },
                     refresh=False,
                 )
                 epoch_progress.update(1)
+                if epochs_without_valid_improvement >= config.patience:
+                    print(
+                        f"[early-stop] none of {', '.join(VALID_METRIC_NAMES)} improved "
+                        f"for {epochs_without_valid_improvement} epochs",
+                        flush=True,
+                    )
+                    break
 
         checkpoint = torch.load(best_path, map_location=device, weights_only=False)
         model.load_state_dict(checkpoint["model_state_dict"])
         test_metrics = evaluate_sampled(
             model,
-            test_histories,
-            test_candidates,
+            data.test_histories,
+            data.test_candidates,
             device,
             config.eval_batch_size,
             k=10,
         )
-        write_test_scalars(writer, config.epochs, test_metrics)
+        write_test_scalars(writer, best_epoch, test_metrics)
 
         summary = {
             "best_epoch": best_epoch,
