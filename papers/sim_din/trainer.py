@@ -13,6 +13,8 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+VALID_METRIC_NAMES = ("auc", "hr@10", "ndcg@10", "mrr")
+
 try:
     from .config import RunConfig, build_config, parse_args
     from .data import (
@@ -112,8 +114,19 @@ def train_one_epoch(
 
 
 def _write_metrics(writer: SummaryWriter, prefix: str, metrics: dict[str, object], epoch: int) -> None:
-    for name in ("auc", "hr@10", "ndcg@10", "mrr"):
+    for name in VALID_METRIC_NAMES:
         writer.add_scalar(f"{prefix}/{name}", float(metrics[name]), epoch)
+
+
+def _update_best_valid_metrics(
+    metrics: dict[str, object], best_metrics: dict[str, float]
+) -> tuple[str, ...]:
+    improved = tuple(
+        name for name in VALID_METRIC_NAMES if float(metrics[name]) > best_metrics[name]
+    )
+    for name in improved:
+        best_metrics[name] = float(metrics[name])
+    return improved
 
 
 def _evaluation_iterator(cache, config: RunConfig, split: str, selected_ids=None):
@@ -175,7 +188,8 @@ def run(config: RunConfig) -> dict[str, object]:
         parameter_count = sum(parameter.numel() for parameter in model.parameters())
         print(f"[model] parameters={parameter_count:,} train_groups={len(train_dataset):,}", flush=True)
 
-        best_subset_auc = float("-inf")
+        best_subset_metrics = {name: float("-inf") for name in VALID_METRIC_NAMES}
+        epochs_without_valid_improvement = 0
         best_full_auc = float("-inf")
         best_epoch = 0
         best_path = output_dir / "best.pt"
@@ -192,10 +206,16 @@ def run(config: RunConfig) -> dict[str, object]:
                 amp,
             )
             subset_auc = float(subset_metrics["auc"])
+            improved_valid_metrics = _update_best_valid_metrics(
+                subset_metrics, best_subset_metrics
+            )
+            if improved_valid_metrics:
+                epochs_without_valid_improvement = 0
+            else:
+                epochs_without_valid_improvement += 1
             full_metrics: dict[str, object] | None = None
             confirmed = False
-            if subset_auc > best_subset_auc:
-                best_subset_auc = subset_auc
+            if "auc" in improved_valid_metrics:
                 full_metrics = evaluate_candidate_groups(
                     model,
                     _evaluation_iterator(cache, config, "valid"),
@@ -229,14 +249,24 @@ def run(config: RunConfig) -> dict[str, object]:
                 "valid_subset": subset_metrics,
                 "valid_full": full_metrics,
                 "confirmed_best": confirmed,
+                "improved_valid_metrics": list(improved_valid_metrics),
+                "epochs_without_valid_improvement": epochs_without_valid_improvement,
             }
             history.append(row)
             progress.set_postfix(
                 loss=f"{train_loss:.4f}",
                 subset_auc=f"{subset_auc:.4f}",
                 best_full_auc=f"{best_full_auc:.4f}",
+                stale=epochs_without_valid_improvement,
                 refresh=False,
             )
+            if epochs_without_valid_improvement >= config.patience:
+                print(
+                    f"[early-stop] none of {', '.join(VALID_METRIC_NAMES)} improved on the "
+                    f"Valid subset for {epochs_without_valid_improvement} epochs",
+                    flush=True,
+                )
+                break
         if not best_path.exists():
             raise RuntimeError("No checkpoint was saved; initial full validation did not run.")
         checkpoint = torch.load(best_path, map_location=device, weights_only=False)

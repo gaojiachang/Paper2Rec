@@ -36,6 +36,7 @@ class RunConfig:
     num_workers: int
     learning_rate: float
     epochs: int
+    patience: int
     valid_subset_size: int
     amp: bool
     device: str | None
@@ -69,6 +70,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--epochs", type=int, default=2000)
+    parser.add_argument("--patience", type=int, default=50)
     parser.add_argument("--valid-subset-size", type=int, default=50_000)
     parser.add_argument("--device", type=str, default=None, help="Torch device, e.g. cuda:0 or cpu.")
     parser.add_argument("--no-amp", action="store_true", help="Disable CUDA automatic mixed precision.")
@@ -113,6 +115,7 @@ def build_config(args: argparse.Namespace) -> RunConfig:
         "batch_size",
         "eval_batch_size",
         "epochs",
+        "patience",
         "valid_subset_size",
         "fast_train_samples",
         "fast_eval_groups",
@@ -150,6 +153,7 @@ def build_config(args: argparse.Namespace) -> RunConfig:
         num_workers=args.num_workers,
         learning_rate=args.learning_rate,
         epochs=1 if args.fast_dev_run else args.epochs,
+        patience=args.patience,
         valid_subset_size=args.valid_subset_size,
         amp=not args.no_amp,
         device=args.device,

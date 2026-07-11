@@ -25,7 +25,7 @@ from papers.sim_din.data import (
 )
 from papers.sim_din.evaluate import average_tie_rank_and_auc
 from papers.sim_din.model import SimDinModel, hard_search_last_k
-from papers.sim_din.trainer import run
+from papers.sim_din.trainer import _update_best_valid_metrics, run
 
 
 def write_fixture(root: Path) -> tuple[Path, Path]:
@@ -104,6 +104,7 @@ def fixture_config(root: Path, model: str = "ours") -> RunConfig:
         num_workers=0,
         learning_rate=1e-3,
         epochs=1,
+        patience=50,
         valid_subset_size=1,
         amp=False,
         device="cpu",
@@ -115,6 +116,14 @@ def fixture_config(root: Path, model: str = "ours") -> RunConfig:
 
 
 class SimDinTests(unittest.TestCase):
+    def test_valid_metric_improvement_tracking(self) -> None:
+        best = {name: 0.5 for name in ("auc", "hr@10", "ndcg@10", "mrr")}
+        improved = _update_best_valid_metrics(
+            {"auc": 0.5, "hr@10": 0.6, "ndcg@10": 0.4, "mrr": 0.5}, best
+        )
+        self.assertEqual(improved, ("hr@10",))
+        self.assertEqual(best["hr@10"], 0.6)
+
     def test_cache_oov_history_and_deterministic_training_group(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config = fixture_config(Path(temporary))
