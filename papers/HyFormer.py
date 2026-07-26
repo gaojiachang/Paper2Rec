@@ -200,16 +200,14 @@ class HyFormerBlock(nn.Module):
         for j in range(self.num_sequences):
             # A. Sequence KV Encoding
             hidden = self.sequence_encoders[j](sequences[j])
-            key = self.key_projections[j](hidden)
-            value = self.value_projections[j](hidden)
 
             # B. Query Decoding
             # 每个 Global Token 只读取对应序列
             query = global_tokens[:, j : j + 1, :]
             decoded, _ = self.cross_attentions[j](
                 query=query,
-                key=key,
-                value=value,
+                key=hidden,
+                value=hidden,
                 need_weights=False,
             )
 
