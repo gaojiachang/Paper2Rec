@@ -6,26 +6,16 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# Virtual environments
+# Local environments and editor files
 .venv/
 venv/
 env/
-
-# Editor and OS files
 .DS_Store
 .idea/
 .vscode/
 
-# Logs and experiment outputs
+# Generated artifacts
 *.log
-papers/*/logs/*
-!papers/*/logs/.gitkeep
 runs/
 checkpoints/
 outputs/
-
-# Dataset contents. Keep only directory placeholders.
-data/raw/*/*
-!data/raw/*/.gitkeep
-data/processed/*/*
-!data/processed/*/.gitkeep
